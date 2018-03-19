@@ -18,6 +18,9 @@ namespace openxbox {
     (ALIGN_DOWN_SIZE(((uint32_t)(length) + size - 1), size))
 
 
+#define NANOSECONDS_PER_SECOND 1000000000LL
+
+
 struct ci_wchar_traits : public ::std::char_traits<wchar_t> {
 	static bool eq(wchar_t c1, wchar_t c2) { return ::std::toupper(c1) == ::std::toupper(c2); }
 	static bool ne(wchar_t c1, wchar_t c2) { return ::std::toupper(c1) != ::std::toupper(c2); }
@@ -44,6 +47,12 @@ inline bool ends_with(ci_wstring const &value, ci_wstring const &ending) {
 	if (ending.size() > value.size()) return false;
 	return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
+
+
+static inline uint64_t GetNanos() {
+    return std::chrono::high_resolution_clock::now().time_since_epoch().count();
+}
+
 
 }
 

@@ -2,6 +2,7 @@
 
 #include "openxbox/log.h"
 #include "openxbox/io.h"
+#include "openxbox/util.h"
 
 namespace openxbox {
 
@@ -69,12 +70,6 @@ namespace openxbox {
 #define UART_FCR_FE         0x01   /* FIFO Enable */
 
 #define MAX_XMIT_RETRY      4
-
-#define SEC_TO_NANO   1000000000ULL
-
-static inline uint64_t GetNanos() {
-    return std::chrono::high_resolution_clock::now().time_since_epoch().count();
-}
 
 int Serial::CanReceiveCB(void *userData) {
     return ((Serial *)userData)->CanReceive();
@@ -155,7 +150,7 @@ void Serial::Reset() {
     m_mcr = UART_MCR_OUT2;
     m_scr = 0;
     m_tsrRetry = 0;
-    m_charTransmitTime = (SEC_TO_NANO / 9600) * 10;
+    m_charTransmitTime = (NANOSECONDS_PER_SECOND / 9600) * 10;
     m_pollMsl = 0;
 
     m_recvFifo->Clear();
@@ -633,7 +628,7 @@ void Serial::UpdateMSL() {
     // The real 16550A apparently has a 250ns response latency to line status changes
     // We'll be lazy and poll only every 10ms, and only poll it at all if MSI interrupts are turned on
     if (m_pollMsl) {
-        m_modemStatusPoll->Set(std::chrono::high_resolution_clock::now() + std::chrono::nanoseconds(SEC_TO_NANO / 100));
+        m_modemStatusPoll->Set(std::chrono::high_resolution_clock::now() + std::chrono::nanoseconds(NANOSECONDS_PER_SECOND / 100));
     }*/
 }
 

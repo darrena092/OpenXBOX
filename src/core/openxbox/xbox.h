@@ -40,7 +40,7 @@
 #include "openxbox/hw/pci/lpc.h"
 #include "openxbox/hw/pci/agpbridge.h"
 #include "openxbox/hw/pci/pcibridge.h"
-#include "openxbox/hw/pci/usb_pci.h"
+#include "openxbox/hw/pci/usb_ohci_pci.h"
 #include "openxbox/hw/pci/nvnet.h"
 #include "openxbox/hw/pci/nvapu.h"
 #include "openxbox/hw/pci/ac97.h"
@@ -107,8 +107,8 @@ protected:
     HostBridgeDevice *m_HostBridge;
     MCPXRAMDevice    *m_MCPXRAM;
     LPCDevice        *m_LPC;
-    USBPCIDevice     *m_USB1;
-    USBPCIDevice     *m_USB2;
+    USBOHCIDevice    *m_USB1;
+    USBOHCIDevice    *m_USB2;
     NVNetDevice      *m_NVNet;
     NVAPUDevice      *m_NVAPU;
     AC97Device       *m_AC97;
