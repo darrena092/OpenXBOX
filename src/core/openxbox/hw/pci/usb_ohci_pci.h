@@ -4,6 +4,7 @@
 
 #include "../defs.h"
 #include "../usb/defs.h"
+#include "../basic/irq.h"
 #include "pci.h"
 #include "openxbox/util/invoke_later.h"
 
@@ -87,11 +88,7 @@ private:
     bool m_asyncComplete = false;
 
     // ----- OHCI functions -----
-    inline void SetInterrupt(uint32_t intr) {
-        m_intrStatus |= intr;
-        UpdateInterrupt();
-    }
-
+    void SetInterrupt(uint32_t intr);
     void UpdateInterrupt();
 
     void SetCtl(uint32_t value);

@@ -212,6 +212,11 @@ void USBOHCIDevice::StopEndpoints() {
     }
 }
 
+void USBOHCIDevice::SetInterrupt(uint32_t intr) {
+    m_intrStatus |= intr;
+    UpdateInterrupt();
+}
+
 void USBOHCIDevice::UpdateInterrupt() {
     int level = 0;
 
@@ -219,7 +224,7 @@ void USBOHCIDevice::UpdateInterrupt() {
         level = 1;
     }
 
-    qemu_set_irq(m_irq, level);
+    m_irq->Handle(level);
 }
 
 void USBOHCIDevice::SignalStartOfFrame() {
