@@ -15,6 +15,7 @@
 
 #ifdef __linux__
 #include <sys/mman.h>
+#include "openxbox/hw/basic/linux/char_serial.h"
 #endif
 
 #include <chrono>
@@ -283,6 +284,8 @@ int Xbox::Initialize(OpenXBOXSettings *settings)
             case CHD_HostSerialPort:
 #ifdef _WIN32
                 m_CharDrivers[i] = new Win32SerialDriver(settings->hw_charDrivers[i].params.hostSerialPort.portNum);
+#elif __linux__
+                m_CharDrivers[i] = new LinuxSerialDriver(settings->hw_charDrivers[i].params.hostSerialPort.portNum);
 #else
                 m_CharDrivers[i] = new NullCharDriver(); // TODO: LinuxSerialDriver(settings->hw_charDrivers[i].params.hostSerialPort.portNum);
 #endif

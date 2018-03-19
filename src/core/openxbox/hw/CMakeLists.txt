@@ -20,6 +20,10 @@ if (WIN32)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/basic/win32")
 endif (WIN32)
 
+if (LINUX)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/basic/linux")
+endif (LINUX)
+
 
 set(SOURCES ${SOURCES}
     ${DIR_HEADERS}
