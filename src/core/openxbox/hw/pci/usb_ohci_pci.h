@@ -69,7 +69,7 @@ private:
     uint32_t m_rhdesc_a = 0;
     uint32_t m_rhdesc_b = 0;
     uint32_t m_rhstatus = 0;
-    OHCIPort m_rhport[OHCI_MAX_PORTS];
+    OHCIPort m_rhport[OHCI_MAX_PORTS] = { 0 };
 
     // PXA27x Non-OHCI events
     uint32_t m_hstatus = 0;
@@ -94,6 +94,9 @@ private:
     void SetCtl(uint32_t value);
     void SetHubStatus(uint32_t value);
     void SetFrameInterval(uint16_t value);
+    
+    void SetPortStatus(uint8_t portNum, uint32_t value);
+    void PortPower(uint8_t index, bool powered);
 
     void HardReset();
     void SoftReset();
@@ -103,6 +106,9 @@ private:
     void StopBus();
 
     void StopEndpoints();
+
+    void ProcessLists(bool completion);
+    bool ServiceEndpointList(uint32_t head, bool completion);
 
     void SignalStartOfFrame();
     void SetEndOfFrameTimer();

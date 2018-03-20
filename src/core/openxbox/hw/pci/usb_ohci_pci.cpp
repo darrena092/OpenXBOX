@@ -71,7 +71,7 @@ void USBOHCIDevice::Init() {
     RegisterBAR(0, 4096, PCI_BAR_TYPE_MEMORY); // 0xFED00000 - 0xFED00FFF  and  0xFED08000 - 0xFED08FFF
 
     Write8(m_configSpace, PCI_INTERRUPT_PIN, 1);
-    
+
     if (m_numPorts > OHCI_MAX_PORTS) {
         log_error("USBOHCIDevice::Init: OHCI num-ports=%d is too big (limit is %d ports)\n", m_numPorts, OHCI_MAX_PORTS);
         return;
@@ -185,21 +185,21 @@ void USBOHCIDevice::SetHubStatus(uint32_t value) {
 
     old_state = m_rhstatus;
 
-    /* write 1 to clear OCIC */
+    // Write 1 to clear OCIC
     if (value & OHCI_RHS_OCIC) {
         m_rhstatus &= ~OHCI_RHS_OCIC;
     }
 
     if (value & OHCI_RHS_LPS) {
         for (uint8_t i = 0; i < m_numPorts; i++) {
-            ohci_port_power(i, 0);
+            PortPower(i, false);
         }
         log_spew("USBOHCIDevice::SetHubStatus: Hub powered down\n");
     }
 
     if (value & OHCI_RHS_LPSC) {
         for (uint8_t i = 0; i < m_numPorts; i++) {
-            ohci_port_power(i, 1);
+            PortPower(i, true);
         }
         log_spew("USBOHCIDevice::SetHubStatus: Hub powered up\n");
     }
@@ -219,6 +219,58 @@ void USBOHCIDevice::SetHubStatus(uint32_t value) {
 
 void USBOHCIDevice::SetFrameInterval(uint16_t value) {
     m_fi = value & OHCI_FMI_FI;
+}
+
+void USBOHCIDevice::SetPortStatus(uint8_t portNum, uint32_t value) {
+    OHCIPort *port = &m_rhport[portNum];
+    uint32_t oldState = port->ctrl;
+
+    // Write to clear CSC, PESC, PSSC, OCIC, PRSC
+    if (value & OHCI_PORT_WTC) {
+        port->ctrl &= ~(value & OHCI_PORT_WTC);
+    }
+
+    if (value & OHCI_PORT_CCS) {
+        port->ctrl &= ~OHCI_PORT_PES;
+    }
+
+    ohci_port_set_if_connected(ohci, portNum, value & OHCI_PORT_PES);
+
+    if (ohci_port_set_if_connected(ohci, portNum, value & OHCI_PORT_PSS)) {
+        log_spew("USBOHCIDevice::SetPortStatus: Port %u suspended\n", portNum);
+    }
+
+    if (ohci_port_set_if_connected(ohci, portNum, value & OHCI_PORT_PRS)) {
+        log_spew("USBOHCIDevice::SetPortStatus: Port %u reset\n", portNum);
+        usb_device_reset(port->port.dev);
+        port->ctrl &= ~OHCI_PORT_PRS;
+        // Should this also set OHCI_PORT_PESC?
+        port->ctrl |= OHCI_PORT_PES | OHCI_PORT_PRSC;
+    }
+
+    // Invert order here to ensure in ambiguous case, device is powered up
+    if (value & OHCI_PORT_LSDA) {
+        PortPower(portNum, false);
+    }
+    if (value & OHCI_PORT_PPS) {
+        PortPower(portNum, true);
+    }
+
+    if (oldState != port->ctrl) {
+        SetInterrupt(OHCI_INTR_RHSC);
+    }
+}
+
+void USBOHCIDevice::PortPower(uint8_t index, bool powered) {
+    if (powered) {
+        m_rhport[index].ctrl |= OHCI_PORT_PPS;
+    }
+    else {
+        m_rhport[index].ctrl &= ~(OHCI_PORT_PPS |
+            OHCI_PORT_CCS |
+            OHCI_PORT_PSS |
+            OHCI_PORT_PRS);
+    }
 }
 
 void USBOHCIDevice::StartBus() {
@@ -255,6 +307,85 @@ void USBOHCIDevice::UpdateInterrupt() {
     }
 
     m_irq->Handle(level);
+}
+
+void USBOHCIDevice::ProcessLists(bool completion) {
+    if ((m_ctl & OHCI_CTL_CLE) && (m_status & OHCI_STATUS_CLF)) {
+        if (m_ctrlCur && m_ctrlCur != m_ctrlHead) {
+            log_spew("USBOHCIDevice::ProcessLists: Processing lists. Head = %u, current = %u\n", m_ctrlHead, m_ctrlCur);
+        }
+        if (!ServiceEndpointList(m_ctrlHead, completion)) {
+            m_ctrlCur = 0;
+            m_status &= ~OHCI_STATUS_CLF;
+        }
+    }
+
+    if ((m_ctl & OHCI_CTL_BLE) && (m_status & OHCI_STATUS_BLF)) {
+        if (!ServiceEndpointList(m_bulkHead, completion)) {
+            m_bulkCur = 0;
+            m_status &= ~OHCI_STATUS_BLF;
+        }
+    }
+}
+
+bool USBOHCIDevice::ServiceEndpointList(uint32_t head, bool completion) {
+    struct ohci_ed ed;
+    uint32_t next_ed;
+    uint32_t linkCnt = 0;
+    bool active = false;
+
+    if (head == 0) {
+        return false;
+    }
+
+    for (uint32_t cur = head; cur; cur = next_ed) {
+        if (ohci_read_ed(cur, &ed)) {
+            log_warning("USBOHCIDevice::ServiceEndpointList: Endpoint read error at %u\n", cur);
+            Die();
+            return false;
+        }
+
+        next_ed = ed.next & OHCI_DPTR_MASK;
+
+        if (++linkCnt > ED_LINK_LIMIT) {
+            Die();
+            return false;
+        }
+
+        if ((ed.head & OHCI_ED_H) || (ed.flags & OHCI_ED_K)) {
+            // Cancel pending packets for ED that have been paused
+            uint32_t addr = ed.head & OHCI_DPTR_MASK;
+            if (m_async_td && addr == m_async_td) {
+                usb_cancel_packet(&m_usbPacket);
+                m_async_td = 0;
+                usb_device_ep_stopped(m_usbPacket.ep->dev, m_usbPacket.ep);
+            }
+            continue;
+        }
+
+        while ((ed.head & OHCI_DPTR_MASK) != ed.tail) {
+            active = true;
+
+            if ((ed.flags & OHCI_ED_F) == 0) {
+                if (ohci_service_td(&ed)) {
+                    break;
+                }
+            }
+            else {
+                // Handle isochronous endpoints
+                if (ohci_service_iso_td(&ed, completion)) {
+                    break;
+                }
+            }
+        }
+
+        if (ohci_put_ed(cur, &ed)) {
+            Die();
+            return false;
+        }
+    }
+
+    return active;
 }
 
 void USBOHCIDevice::SignalStartOfFrame() {
@@ -317,7 +448,7 @@ void USBOHCIDevice::OnFrameBoundary() {
         StopEndpoints();
     }
     m_oldCtl = m_ctl;
-    ohci_process_lists(0);
+    ProcessLists(false);
 
     // Stop if UnrecoverableError happened or ohci_sof will crash
     if (m_intrStatus & OHCI_INTR_UE) {
@@ -496,7 +627,7 @@ void USBOHCIDevice::PCIMMIOWrite(int barIndex, uint32_t addr, uint32_t value, ui
 
     if (addr >= 0x54 && addr < 0x54 + m_numPorts * 4) {
         // HcRhPortStatus
-        ohci_port_set_status((addr - 0x54) >> 2, value);
+        SetPortStatus((addr - 0x54) >> 2, value);
         return;
     }
 
